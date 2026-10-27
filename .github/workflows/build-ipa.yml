@@ -1,0 +1,414 @@
+name: FOUGO VIP Suite - IPA Build & Telegram Bot Host
+
+on:
+  push:
+    branches: [ "main", "master" ]
+    tags: [ "v*" ]
+  schedule:
+    # Keeps the Telegram Bot running 24/7 (auto-restarts before the 6-hour runner limit)
+    - cron: '0 */5 * * *'
+  workflow_dispatch:
+    inputs:
+      filza_url:
+        description: "Direct URL to FilzaSlop_1.0.3.ipa (Optional)"
+        required: false
+        default: ""
+      telegram_owner:
+        description: "Telegram Support Handle"
+        required: false
+        default: "@MYZO_PANEL"
+      bot_token:
+        description: "Telegram Bot Token"
+        required: false
+        default: "9029335335:AAHTc1Ui-hTfZbBkijk_GPoZKnCdqPvQ6Fc"
+      owner_id:
+        description: "Telegram Owner User ID"
+        required: false
+        default: "8245269289"
+      video_url:
+        description: "Direct URL to banner video (Optional)"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+jobs:
+  # =========================================================================
+  # JOB 1: BUILD IOS IPA (FOUGO EXTERNAL with Clang arm64, Anti-Crack & Video)
+  # =========================================================================
+  build_ipa:
+    name: Build iOS IPA (FOUGO EXTERNAL)
+    # Only skip IPA build on automated 5-hour cron keep-alive
+    if: github.event_name != 'schedule'
+    runs-on: macos-14
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Tools
+        run: pip install lief pillow
+
+      - name: Auto Extract Project Archives
+        run: |
+          set -e
+          python3 -c "
+          import zipfile, pathlib
+          for z in pathlib.Path('.').rglob('*.zip'):
+              if 'filza' not in z.name.lower() and not z.name.startswith('.'):
+                  try:
+                      with zipfile.ZipFile(z, 'r') as r: r.extractall('.')
+                  except Exception as e: print(e)
+          "
+
+      - name: Locate Source and Filza
+        run: |
+          set -e
+          MAIN_M=$(find . -name "main.m" | head -n 1)
+          if [ -z "$MAIN_M" ]; then
+            echo "::error::main.m not found!" && exit 1
+          fi
+          echo "APP_DIR=$(dirname "$MAIN_M")" >> $GITHUB_ENV
+          echo "MAIN_M=$MAIN_M" >> $GITHUB_ENV
+
+          mkdir -p inputs
+          FILZA_IN="${{ github.event.inputs.filza_url }}"
+          if [ -n "$FILZA_IN" ]; then
+            curl -fL -o "inputs/FilzaSlop_1.0.3.ipa" "$FILZA_IN"
+          fi
+          FILZA_IPA=$(find . -maxdepth 4 -name "*Filza*.ipa" -o -name "*filza*.ipa" | head -n 1)
+          if [ -z "$FILZA_IPA" ]; then
+            echo "::error::FilzaSlop_1.0.3.ipa not found in repository!" && exit 1
+          fi
+          echo "FILZA_IPA=$FILZA_IPA" >> $GITHUB_ENV
+
+      - name: Setup Build Folders & Extract Bridge
+        run: |
+          set -e
+          rm -rf .build release
+          mkdir -p .build release .build/Payload/fougoexternal.app/Frameworks/CoreTelemetry.framework .build/Payload/fougoexternal.app/OfflineCache
+          unzip -p "$FILZA_IPA" "Payload/Filza.app/Frameworks/FilzaApplySandboxExt.dylib" > .build/FilzaApplySandboxExt.dylib
+          strip -S .build/FilzaApplySandboxExt.dylib 2>/dev/null || true
+          install_name_tool -id "@rpath/CoreTelemetry.framework/CoreTelemetry" .build/FilzaApplySandboxExt.dylib
+          python3 "$APP_DIR/protect_bridge.py" .build/FilzaApplySandboxExt.dylib .build/Payload/fougoexternal.app/Frameworks/CoreTelemetry.framework/CoreTelemetry .build/protection_metadata.json
+          python3 -c "import json; d=json.load(open('.build/protection_metadata.json'))['slices']; open('.build/ProtectedConfig.h','w').write(f'#ifndef ProtectedConfig_h\n#define ProtectedConfig_h\n#define FMCORE_TEXT_SHA256_A @\"{d[0][\"text_sha256\"]}\"\n#define FMCORE_EXPORT_SHA256_A @\"{d[0][\"export_sha256\"]}\"\n#define FMCORE_SECTION_SHA256_A @\"{d[0][\"section_sha256\"]}\"\n#define FMCORE_TEXT_SHA256_B @\"{d[1][\"text_sha256\"]}\"\n#define FMCORE_EXPORT_SHA256_B @\"{d[1][\"export_sha256\"]}\"\n#define FMCORE_SECTION_SHA256_B @\"{d[1][\"section_sha256\"]}\"\n#endif\n')"
+          cat << 'EOF' > .build/FFBundleFix.h
+#ifndef FFBundleFix_h
+#define FFBundleFix_h
+#import <Foundation/Foundation.h>
+#ifndef FFBundleIDFreeFireTH_DEFINED
+#define FFBundleIDFreeFireTH_DEFINED
+static NSString *const FFBundleIDFreeFireTH __attribute__((unused)) = @"com.dts.freefireth";
+static NSString *const FFBundleIDFreeFire __attribute__((unused)) = @"com.dts.freefireth";
+static NSString *const FFBundleIDFreeFireVN __attribute__((unused)) = @"com.dts.freefirevn";
+static NSString *const FFBundleIDFreeFireTW __attribute__((unused)) = @"com.dts.freefiretw";
+static NSString *const FFBundleIDFreeFireGlobal __attribute__((unused)) = @"com.dts.freefireth";
+static NSString *const FFBundleIDFreeFireID __attribute__((unused)) = @"com.dts.freefireth";
+static NSString *const FFHologramShaderFilename __attribute__((unused)) = @"shaders.HPt9DZviTSXL9hpGW9QNOMigNLA~3D";
+static NSString *const FFThreeDShaderFilename __attribute__((unused)) = @"optionalavatarres_commonab_shader";
+static NSString *const FFHologramStateKey __attribute__((unused)) = @"FMHologramPersistentState";
+static inline NSString *FFAPIBaseURL(void) { return @""; }
+static NSString *const FFOwnerTelegram __attribute__((unused)) = @"@MYZO_PANEL";
+static inline BOOL FFBrandIdentityIsValid(void) { return YES; }
+#endif
+#endif
+EOF
+
+      - name: Patch main.m with Anti-Crack & Video Banner
+        env:
+          TG_OWNER: ${{ github.event.inputs.telegram_owner || '@MYZO_PANEL' }}
+          MAIN_M: ${{ env.MAIN_M }}
+          APP_DIR: ${{ env.APP_DIR }}
+        run: |
+          set -e
+          # 1. Guarantee missing bundle IDs (FFBundleIDFreeFireTH etc.) are declared before compilation
+          python3 -c "
+          import os, re
+          targets = set()
+          m = os.environ.get('MAIN_M')
+          if m and os.path.isfile(m): targets.add(m)
+          app_d = os.environ.get('APP_DIR')
+          if app_d and os.path.isfile(os.path.join(app_d, 'main.m')): targets.add(os.path.join(app_d, 'main.m'))
+          for root, _, files in os.walk('.'):
+              for f in files:
+                  if f == 'main.m': targets.add(os.path.join(root, f))
+          bundle_defs = (
+              'static NSString *const FFBundleIDFreeFireTH = @\"com.dts.freefireth\";\n'
+              'static NSString *const FFBundleIDFreeFire = @\"com.dts.freefireth\";\n'
+              'static NSString *const FFBundleIDFreeFireVN = @\"com.dts.freefirevn\";\n'
+              'static NSString *const FFBundleIDFreeFireTW = @\"com.dts.freefiretw\";\n'
+              'static NSString *const FFBundleIDFreeFireGlobal = @\"com.dts.freefireth\";\n'
+              'static NSString *const FFBundleIDFreeFireID = @\"com.dts.freefireth\";\n'
+          )
+          for p in targets:
+              try:
+                  with open(p, 'r', encoding='utf-8', errors='ignore') as f: code = f.read()
+                  if 'FFBundleIDFreeFireTH' not in code:
+                      if 'FFBundleIDFreeFireMAX' in code:
+                          code = re.sub(r'(\bstatic\s+NSString\s*\*const\s+FFBundleIDFreeFireMAX\s*=\s*@[^;]+;)', rf'{bundle_defs}\1', code, count=1)
+                      else:
+                          code = bundle_defs + '\n' + code
+                      with open(p, 'w', encoding='utf-8') as f: f.write(code)
+                      print(f'[✓] Auto-declared FFBundleIDFreeFireTH in {p}')
+              except Exception as e:
+                  print(f'[!] Note: {p}: {e}')
+          "
+          # 2. Run full feature patch script if present
+          if [ -f "patch_main.py" ]; then
+            python3 patch_main.py
+          fi
+
+      - name: Compile iOS Binary (Apple Clang arm64)
+        run: |
+          set -e
+          IOS_SDK=$(xcrun --sdk iphoneos --show-sdk-path)
+          echo "Using Apple SDK: $IOS_SDK"
+          clang -arch arm64 -target arm64-apple-ios15.0 -isysroot "$IOS_SDK" -fobjc-arc -Os -fstack-protector-strong -fvisibility=hidden -fomit-frame-pointer -fno-ident -Wno-deprecated-declarations -DFM_OFFLINE_BUILD=1 -DFM_RELEASE_BUILD=1 -DFM_REQUIRE_SIGNED_RESPONSES=1 -I.build -include .build/FFBundleFix.h "$APP_DIR/main.m" -framework UIKit -framework Foundation -framework CoreGraphics -framework QuartzCore -framework Security -framework UniformTypeIdentifiers -framework AVFoundation -framework AVKit -framework CoreMedia -lobjc -lSystem -dead_strip -Xlinker -adhoc_codesign -o .build/Payload/fougoexternal.app/fougoexternal
+          strip -x .build/Payload/fougoexternal.app/fougoexternal 2>/dev/null || true
+
+      - name: Bundle Assets and Video Banner
+        run: |
+          set -e
+          cp "$APP_DIR/Info.plist" .build/Payload/fougoexternal.app/Info.plist
+          sed -i '' 's/NovaBody/FOUGO EXTERNAL/g' .build/Payload/fougoexternal.app/Info.plist 2>/dev/null || sed -i 's/NovaBody/FOUGO EXTERNAL/g' .build/Payload/fougoexternal.app/Info.plist 2>/dev/null || true
+          sed -i '' 's/FOUGO EXYERNAL/FOUGO EXTERNAL/g' .build/Payload/fougoexternal.app/Info.plist 2>/dev/null || sed -i 's/FOUGO EXYERNAL/FOUGO EXTERNAL/g' .build/Payload/fougoexternal.app/Info.plist 2>/dev/null || true
+          # Ensure CFBundleSupportedPlatforms exists and Bundle ID is com.apple.mobile.MobileHouseArrest
+          python3 -c "
+          import plistlib
+          p = '.build/Payload/fougoexternal.app/Info.plist'
+          try:
+              with open(p, 'rb') as f: d = plistlib.load(f)
+              d['CFBundleSupportedPlatforms'] = ['iPhoneOS']
+              d['CFBundleIdentifier'] = 'com.apple.mobile.MobileHouseArrest'
+              d['CFBundleDisplayName'] = 'FOUGO EXTERNAL'
+              d['CFBundleExecutable'] = 'fougoexternal'
+              with open(p, 'wb') as f: plistlib.dump(d, f)
+              print('[✓] Info.plist configured with com.apple.mobile.MobileHouseArrest')
+          except Exception as e: print(e)
+          "
+          cp "$APP_DIR/FrameworkInfo.plist" .build/Payload/fougoexternal.app/Frameworks/CoreTelemetry.framework/Info.plist
+          codesign --force --sign - --timestamp=none .build/Payload/fougoexternal.app/Frameworks/CoreTelemetry.framework 2>/dev/null || true
+          codesign --force --sign - --timestamp=none .build/Payload/fougoexternal.app 2>/dev/null || true
+
+          BG=$(find "$APP_DIR" -maxdepth 1 -name "*externel*.jpg" -o -name "*Background*.jpg" | head -n 1)
+          if [ -n "$BG" ]; then
+            cp "$BG" .build/Payload/fougoexternal.app/RobotExternalBackground.jpg || true
+            cp "$BG" .build/Payload/fougoexternal.app/MyzoExternalBackground.jpg || true
+            cp "$BG" .build/Payload/fougoexternal.app/fougoExternalBackground.jpg || true
+          fi
+
+          VID=$(find . -maxdepth 3 -name "*banner*.mp4" -o -name "*.mov" -o -name "*tiktok*.mov" -o -name "*banner*.mov" | head -n 1)
+          VIDEO_IN="${{ github.event.inputs.video_url }}"
+          if [ -z "$VID" ] && [ -n "$VIDEO_IN" ]; then
+            curl -fL -o "banner.mp4" "$VIDEO_IN" && VID="banner.mp4"
+          fi
+          if [ -n "$VID" ]; then
+            echo "[✓] Bundling video: $VID"
+            cp "$VID" .build/Payload/fougoexternal.app/banner.mp4 || true
+            cp "$VID" .build/Payload/fougoexternal.app/banner.mov || true
+          fi
+
+          for feat in BODY NECK; do
+            PROF=$(find "$APP_DIR" -name "$feat.*" | head -n 1)
+            if [ -n "$PROF" ]; then
+              cp "$PROF" .build/Payload/fougoexternal.app/OfflineCache/$feat.fougoexternal
+              cp "$PROF" .build/Payload/fougoexternal.app/$feat.fougoexternal
+            fi
+          done
+
+      - name: Generate App Icons
+        run: |
+          set -e
+          python3 -c "
+          from pathlib import Path
+          from PIL import Image, ImageDraw
+          target_dir = Path('.build/Payload/fougoexternal.app')
+          target_dir.mkdir(parents=True, exist_ok=True)
+          sizes = [('AppIcon60x60@2x.png', 120, 120), ('AppIcon60x60@3x.png', 180, 180), ('AppIcon76x76@2x~ipad.png', 152, 152), ('iTunesArtwork@2x.png', 1024, 1024)]
+          img = Image.new('RGBA', (1024, 1024), color=(14, 16, 25, 255))
+          draw = ImageDraw.Draw(img)
+          draw.rectangle([(60, 60), (964, 964)], outline=(235, 190, 60, 255), width=32)
+          for fname, w, h in sizes:
+              img.resize((w, h), Image.Resampling.LANCZOS).save(target_dir / fname, 'PNG')
+          "
+
+      - name: Package VIP IPA & Telegram Bot Suite
+        env:
+          INPUT_BOT_TOKEN: ${{ github.event.inputs.bot_token || '9029335335:AAHTc1Ui-hTfZbBkijk_GPoZKnCdqPvQ6Fc' }}
+          INPUT_OWNER_ID: ${{ github.event.inputs.owner_id || '8245269289' }}
+        run: |
+          set -e
+          cd .build
+          zip -qry9 "../release/RobotExternal-v100-VIP-Unsigned.ipa" Payload
+          cd ..
+          shasum -a 256 release/RobotExternal-v100-VIP-Unsigned.ipa > release/RobotExternal-v100-VIP-Unsigned.ipa.sha256
+
+          # Bundle the 100% button-driven Telegram Bot + License API
+          python3 -c "
+          import os, shutil
+          bot_bundled = False
+          tok = os.environ.get('INPUT_BOT_TOKEN', '9029335335:AAHTc1Ui-hTfZbBkijk_GPoZKnCdqPvQ6Fc')
+          own = os.environ.get('INPUT_OWNER_ID', '8245269289')
+          for d in ['telegram_bot_panel', 'bot', 'telegram_bot']:
+              if os.path.isdir(d):
+                  with open(os.path.join(d, '.env'), 'w') as f:
+                      f.write(f'BOT_TOKEN={tok}\nOWNER_IDS={own}\nAPI_SECRET=FOUGO_VIP_SECRET_9973\nPANEL_SECRET=FOUGO_PASS_9973\nDB_PATH=data/myzo.db\n')
+                  shutil.make_archive('release/FOUGO_TELEGRAM_BOT_V2', 'zip', d)
+                  print(f'Successfully bundled {d} with configured .env into release/FOUGO_TELEGRAM_BOT_V2.zip')
+                  bot_bundled = True
+                  break
+          if not bot_bundled:
+              for z in ['public/download/MYZO_TELEGRAM_BOT_V2.zip', 'MYZO_TELEGRAM_BOT_V2.zip']:
+                  if os.path.isfile(z):
+                      shutil.copy(z, 'release/FOUGO_TELEGRAM_BOT_V2.zip')
+                      print(f'Copied {z} to release/FOUGO_TELEGRAM_BOT_V2.zip')
+                      bot_bundled = True
+                      break
+          "
+          echo "VIP BUILD & BOT PACKAGING COMPLETED SUCCESSFULLY!"
+
+      - name: Upload VIP Build & Bot Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: FOUGO-External-VIP-Suite
+          path: |
+            release/*.ipa
+            release/*.sha256
+            release/*.zip
+          retention-days: 30
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name || format('v1.0.{0}', github.run_number) }}
+          name: "FOUGO External VIP IPA & Telegram Bot v1.0 (Build ${{ github.run_number }})"
+          files: |
+            release/*.ipa
+            release/*.sha256
+            release/*.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # =========================================================================
+  # JOB 2: RUN TELEGRAM VIP BOT (HOSTED 24/7 ON GITHUB ACTIONS RUNNER)
+  # =========================================================================
+  host_telegram_bot:
+    name: Run Telegram VIP Bot 24/7 (Cloud Runner)
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    concurrency:
+      group: fougo-telegram-bot-runner
+      cancel-in-progress: true
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Bot Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install python-telegram-bot fastapi uvicorn python-dotenv httpx
+
+      - name: Configure Git Identity for Database Auto-Sync
+        run: |
+          git config --global user.name "FOUGO Bot Runner"
+          git config --global user.email "bot@fougo.internal"
+
+      - name: Launch Telegram Bot & Keep Active with Auto-Sync
+        env:
+          BOT_TOKEN: ${{ github.event.inputs.bot_token || secrets.BOT_TOKEN || '9029335335:AAHTc1Ui-hTfZbBkijk_GPoZKnCdqPvQ6Fc' }}
+          OWNER_IDS: ${{ github.event.inputs.owner_id || secrets.OWNER_IDS || '8245269289' }}
+          API_SECRET: FOUGO_VIP_SECRET_9973
+          DB_PATH: telegram_bot_panel/data/myzo.db
+        run: |
+          set -e
+          mkdir -p telegram_bot_panel/data
+
+          # Launch Telegram Bot Runner
+          RUNNER_SCRIPT=""
+          if [ -f "telegram_bot_panel/standalone_runner.py" ]; then
+            RUNNER_SCRIPT="telegram_bot_panel/standalone_runner.py"
+          else
+            RUNNER_SCRIPT=$(find . -name "standalone_runner.py" | head -n 1)
+          fi
+
+          if [ -z "$RUNNER_SCRIPT" ]; then
+            for z in $(find . -name "*.zip"); do
+              if unzip -l "$z" 2>/dev/null | grep -q "standalone_runner.py"; then
+                mkdir -p telegram_bot_panel
+                unzip -q -o "$z" -d telegram_bot_panel
+                RUNNER_SCRIPT="telegram_bot_panel/standalone_runner.py"
+                break
+              fi
+            done
+          fi
+
+          if [ -z "$RUNNER_SCRIPT" ] || [ ! -f "$RUNNER_SCRIPT" ]; then
+            if [ -f "telegram_bot_panel/bot/bot.py" ]; then
+              RUNNER_SCRIPT="telegram_bot_panel/bot/bot.py"
+            else
+              RUNNER_SCRIPT=$(find . -name "bot.py" | head -n 1)
+            fi
+          fi
+
+          if [ -z "$RUNNER_SCRIPT" ] || [ ! -f "$RUNNER_SCRIPT" ]; then
+            echo "::error::Could not find standalone_runner.py or bot.py in repository!"
+            exit 1
+          fi
+
+          echo "[✓] Launching Telegram Bot from: $RUNNER_SCRIPT"
+          PYTHONUNBUFFERED=1 python3 "$RUNNER_SCRIPT" &
+          BOT_PID=$!
+          echo "Bot successfully running with PID: $BOT_PID"
+          sleep 3
+          if ! kill -0 $BOT_PID 2>/dev/null; then
+            echo "::error::Bot process died immediately upon startup! Check your BOT_TOKEN secret."
+            exit 1
+          fi
+
+          # Run for ~310 minutes (~5.1 hours), committing database changes every 10 minutes
+          for i in {1..31}; do
+            sleep 600
+            if ! kill -0 $BOT_PID 2>/dev/null; then
+              echo "Error: Bot process terminated unexpectedly!"
+              exit 1
+            fi
+
+            # Auto-save database to GitHub if modified
+            if [ -f "telegram_bot_panel/data/myzo.db" ]; then
+              git add telegram_bot_panel/data/myzo.db
+              if ! git diff --cached --quiet; then
+                echo "[✓] Auto-saving database to GitHub repository..."
+                git commit -m "Auto-backup license database [skip ci]" || true
+                git push origin HEAD || true
+              fi
+            fi
+          done
+
+          # Graceful shutdown before runner timeout
+          echo "Cycle completed. Gracefully restarting bot..."
+          kill -SIGTERM $BOT_PID 2>/dev/null || true
+          wait $BOT_PID 2>/dev/null || true
+
+          if [ -f "telegram_bot_panel/data/myzo.db" ]; then
+            git add telegram_bot_panel/data/myzo.db
+            if ! git diff --cached --quiet; then
+              git commit -m "Final sync license database before restart [skip ci]" || true
+              git push origin HEAD || true
+            fi
+          fi
+          echo "Bot cycle finished cleanly. Next scheduled run will resume seamlessly."
