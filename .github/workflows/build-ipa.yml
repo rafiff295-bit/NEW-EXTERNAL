@@ -97,28 +97,30 @@ jobs:
           strip -S .build/FilzaApplySandboxExt.dylib 2>/dev/null || true
           install_name_tool -id "@rpath/CoreTelemetry.framework/CoreTelemetry" .build/FilzaApplySandboxExt.dylib
           python3 "$APP_DIR/protect_bridge.py" .build/FilzaApplySandboxExt.dylib .build/Payload/fougoexternal.app/Frameworks/CoreTelemetry.framework/CoreTelemetry .build/protection_metadata.json
-          python3 -c "import json; d=json.load(open('.build/protection_metadata.json'))['slices']; open('.build/ProtectedConfig.h','w').write(f'#ifndef ProtectedConfig_h\n#define ProtectedConfig_h\n#define FMCORE_TEXT_SHA256_A @\"{d[0][\"text_sha256\"]}\"\n#define FMCORE_EXPORT_SHA256_A @\"{d[0][\"export_sha256\"]}\"\n#define FMCORE_SECTION_SHA256_A @\"{d[0][\"section_sha256\"]}\"\n#define FMCORE_TEXT_SHA256_B @\"{d[1][\"text_sha256\"]}\"\n#define FMCORE_EXPORT_SHA256_B @\"{d[1][\"export_sha256\"]}\"\n#define FMCORE_SECTION_SHA256_B @\"{d[1][\"section_sha256\"]}\"\n#endif\n')"
-          cat << 'EOF' > .build/FFBundleFix.h
-#ifndef FFBundleFix_h
-#define FFBundleFix_h
-#import <Foundation/Foundation.h>
-#ifndef FFBundleIDFreeFireTH_DEFINED
-#define FFBundleIDFreeFireTH_DEFINED
-static NSString *const FFBundleIDFreeFireTH __attribute__((unused)) = @"com.dts.freefireth";
-static NSString *const FFBundleIDFreeFire __attribute__((unused)) = @"com.dts.freefireth";
-static NSString *const FFBundleIDFreeFireVN __attribute__((unused)) = @"com.dts.freefirevn";
-static NSString *const FFBundleIDFreeFireTW __attribute__((unused)) = @"com.dts.freefiretw";
-static NSString *const FFBundleIDFreeFireGlobal __attribute__((unused)) = @"com.dts.freefireth";
-static NSString *const FFBundleIDFreeFireID __attribute__((unused)) = @"com.dts.freefireth";
-static NSString *const FFHologramShaderFilename __attribute__((unused)) = @"shaders.HPt9DZviTSXL9hpGW9QNOMigNLA~3D";
-static NSString *const FFThreeDShaderFilename __attribute__((unused)) = @"optionalavatarres_commonab_shader";
-static NSString *const FFHologramStateKey __attribute__((unused)) = @"FMHologramPersistentState";
-static inline NSString *FFAPIBaseURL(void) { return @""; }
-static NSString *const FFOwnerTelegram __attribute__((unused)) = @"@MYZO_PANEL";
-static inline BOOL FFBrandIdentityIsValid(void) { return YES; }
-#endif
-#endif
-EOF
+          python3 -c "
+          hdr = '''#ifndef FFBundleFix_h
+          #define FFBundleFix_h
+          #import <Foundation/Foundation.h>
+          #ifndef FFBundleIDFreeFireTH_DEFINED
+          #define FFBundleIDFreeFireTH_DEFINED
+          static NSString *const FFBundleIDFreeFireTH __attribute__((unused)) = @\"com.dts.freefireth\";
+          static NSString *const FFBundleIDFreeFire __attribute__((unused)) = @\"com.dts.freefireth\";
+          static NSString *const FFBundleIDFreeFireVN __attribute__((unused)) = @\"com.dts.freefirevn\";
+          static NSString *const FFBundleIDFreeFireTW __attribute__((unused)) = @\"com.dts.freefiretw\";
+          static NSString *const FFBundleIDFreeFireGlobal __attribute__((unused)) = @\"com.dts.freefireth\";
+          static NSString *const FFBundleIDFreeFireID __attribute__((unused)) = @\"com.dts.freefireth\";
+          static NSString *const FFHologramShaderFilename __attribute__((unused)) = @\"shaders.HPt9DZviTSXL9hpGW9QNOMigNLA~3D\";
+          static NSString *const FFThreeDShaderFilename __attribute__((unused)) = @\"optionalavatarres_commonab_shader\";
+          static NSString *const FFHologramStateKey __attribute__((unused)) = @\"FMHologramPersistentState\";
+          static inline NSString *FFAPIBaseURL(void) { return @\"\"; }
+          static NSString *const FFOwnerTelegram __attribute__((unused)) = @\"@MYZO_PANEL\";
+          static inline BOOL FFBrandIdentityIsValid(void) { return YES; }
+          #endif
+          #endif
+          '''
+          with open('.build/FFBundleFix.h', 'w') as f:
+              f.write(hdr)
+          "
 
       - name: Patch main.m with Anti-Crack & Video Banner
         env:
